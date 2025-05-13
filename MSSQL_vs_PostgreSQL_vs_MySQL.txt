@@ -1,0 +1,200 @@
+# USE store;------------------------------------------------------------------------------------------------------
+Rendszer	Parancs
+MSSQL		USE store;
+MySQL		USE store;
+PostgreSQL	NEM támogatott — használj \c store a psql shellben vagy csatlakozz újra másik adatbázishoz.
+
+# DROP parancsok:-------------------------------------------------------------------------------------------------
+Mindhárom rendszerben azonos
+
+DROP TABLE table_name;
+DROP DATABASE store;
+
+# CREATE DATABASE store;------------------------------------------------------------------------------------------
+Mindhárom rendszerben működik.
+
+# CREATE TABLE — account, job, account_job------------------------------------------------------------------------
+  Megjegyzés:
+  SERIAL -> PostgreSQL-specifikus.
+  MSSQL használ IDENTITY, MySQL pedig AUTO_INCREMENT.
+  A FOREIGN KEY deklaráció a last_login oszlopnál hibás -> last_login nem referencia másik táblára -> eltávolítva.
+  CHECK nem támogatott MySQL régebbi verziókban (pl. MySQL 5.x).
+
+PostgreSQL:------------------------------------------------
+
+CREATE TABLE account (
+    user_id SERIAL PRIMARY KEY,
+    username VARCHAR(50) UNIQUE NOT NULL,
+    password VARCHAR(50) NOT NULL,
+    email VARCHAR(250) UNIQUE NOT NULL,
+    created_on TIMESTAMP NOT NULL,
+    last_login TIMESTAMP,
+    age SMALLINT CHECK (age > 21),
+    parent_age SMALLINT CHECK (parent_age > age)
+);
+
+CREATE TABLE job (
+    job_id SERIAL PRIMARY KEY,
+    job_name VARCHAR(200) UNIQUE NOT NULL
+);
+
+CREATE TABLE account_job (
+    user_id INTEGER REFERENCES account(user_id),
+    job_id INTEGER REFERENCES job(job_id),
+    hire_date TIMESTAMP
+);
+
+MySQL:-----------------------------------------------------
+
+CREATE TABLE account (
+    user_id INT AUTO_INCREMENT PRIMARY KEY,
+    username VARCHAR(50) UNIQUE NOT NULL,
+    password VARCHAR(50) NOT NULL,
+    email VARCHAR(250) UNIQUE NOT NULL,
+    created_on TIMESTAMP NOT NULL,
+    last_login TIMESTAMP,
+    age SMALLINT,
+    parent_age SMALLINT,
+    CHECK (age > 21),
+    CHECK (parent_age > age)
+);
+
+CREATE TABLE job (
+    job_id INT AUTO_INCREMENT PRIMARY KEY,
+    job_name VARCHAR(200) UNIQUE NOT NULL
+);
+
+CREATE TABLE account_job (
+    user_id INT,
+    job_id INT,
+    hire_date TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES account(user_id),
+    FOREIGN KEY (job_id) REFERENCES job(job_id)
+);
+
+MSSQL:-----------------------------------------------------
+
+CREATE TABLE account (
+    user_id INT IDENTITY(1,1) PRIMARY KEY,
+    username VARCHAR(50) UNIQUE NOT NULL,
+    password VARCHAR(50) NOT NULL,
+    email VARCHAR(250) UNIQUE NOT NULL,
+    created_on DATETIME NOT NULL,
+    last_login DATETIME,
+    age SMALLINT CHECK (age > 21),
+    parent_age SMALLINT CHECK (parent_age > age)
+);
+
+CREATE TABLE job (
+    job_id INT IDENTITY(1,1) PRIMARY KEY,
+    job_name VARCHAR(200) UNIQUE NOT NULL
+);
+
+CREATE TABLE account_job (
+    user_id INT FOREIGN KEY REFERENCES account(user_id),
+    job_id INT FOREIGN KEY REFERENCES job(job_id),
+    hire_date DATETIME
+);
+
+# DELETE parancs RETURNING-gel------------------------------------------------------------------------------------
+
+Rendszer	Támogatja RETURNING?	Példa
+PostgreSQL	✅ Igen			DELETE FROM job WHERE job_name = 'President' RETURNING job_id, job_name;
+MySQL		❌ Nem			Alternatíva: előbb SELECT, majd DELETE
+MSSQL		✅ OUTPUT használatával	DELETE FROM job OUTPUT DELETED.job_id, DELETED.job_name WHERE job_name = 'President';
+
+# INSERT parancsok------------------------------------------------------------------------------------------------
+Mindhárom rendszerben működik a következő szintaxissal, kis eltérésekkel:
+
+INSERT INTO account (username, password, email, created_on)
+VALUES
+('Jose', 'password', 'jose@mail.com', CURRENT_TIMESTAMP);
+
+INSERT INTO job (job_name)
+VALUES
+('Astronaut'), ('President');
+
+INSERT INTO account_job (user_id, job_id, hire_date)
+VALUES
+(1, 1, CURRENT_TIMESTAMP);
+
+# UPDATE parancsok------------------------------------------------------------------------------------------------
+
+UPDATE account
+SET last_login = CURRENT_TIMESTAMP;
+
+UPDATE account
+SET last_login = created_on;
+
+-- PostgreSQL
+UPDATE account_job
+SET hire_date = account.created_on
+FROM account
+WHERE account_job.user_id = account.user_id;
+
+-- MSSQL
+UPDATE aj
+SET hire_date = a.created_on
+FROM account_job aj
+JOIN account a ON aj.user_id = a.user_id;
+
+-- MySQL (nem támogatja `FROM`)
+UPDATE account_job aj
+JOIN account a ON aj.user_id = a.user_id
+SET aj.hire_date = a.created_on;
+
+-- RETURNING
+-- PostgreSQL
+UPDATE account
+SET last_login = CURRENT_TIMESTAMP
+RETURNING email, created_on, last_login;
+
+-- MSSQL
+UPDATE account
+SET last_login = CURRENT_TIMESTAMP
+OUTPUT inserted.email, inserted.created_on, inserted.last_login;
+
+-- MySQL: ❌ RETURNING nem támogatott, workaround szükséges
+
+# ALTER TABLE-----------------------------------------------------------------------------------------------------
+
+-- RENAME TABLE
+-- PostgreSQL
+ALTER TABLE account_job RENAME TO account_and_job;
+-- MySQL
+RENAME TABLE account_job TO account_and_job;
+-- MSSQL
+EXEC sp_rename 'account_job', 'account_and_job';
+
+-- RENAME COLUMN
+
+-- PostgreSQL
+ALTER TABLE account_and_job RENAME COLUMN job_id TO work_id;
+
+-- MySQL (v8.0+)
+ALTER TABLE account_and_job RENAME COLUMN job_id TO work_id;
+
+-- MSSQL
+EXEC sp_rename 'account_and_job.job_id', 'work_id', 'COLUMN';
+
+-- DROP NOT NULL
+ALTER TABLE account_and_job ALTER COLUMN work_id DROP NOT NULL; -- PostgreSQL
+ALTER TABLE account_and_job MODIFY work_id INT NULL; -- MySQL
+ALTER TABLE account_and_job ALTER COLUMN work_id INT NULL; -- MSSQL
+
+-- SET NOT NULL
+ALTER TABLE account_and_job ALTER COLUMN work_id SET NOT NULL; -- PostgreSQL
+ALTER TABLE account_and_job MODIFY work_id INT NOT NULL; -- MySQL
+ALTER TABLE account_and_job ALTER COLUMN work_id INT NOT NULL; -- MSSQL
+
+-- ADD COLUMN
+ALTER TABLE account_and_job ADD account_name VARCHAR(20); -- mindenhol hasonló
+
+-- ADD PRIMARY KEY
+ALTER TABLE dolgozok ADD PRIMARY KEY (id); -- mindenhol működik
+
+-- ADD FOREIGN KEY
+ALTER TABLE feladatok ADD FOREIGN KEY (dolgozoid) REFERENCES dolgozok(id); -- mindenhol hasonló
+
+-- DROP COLUMN
+ALTER TABLE feladatok DROP COLUMN szuletesnap; -- mindenhol működik
